@@ -205,8 +205,11 @@ class Lab04App extends StatelessWidget {
 }
 
 // -----------------------------------------------------------------------------
-// The screen. Everything from here to the harness is yours to fix.
+// The screen. Fixed.
 // -----------------------------------------------------------------------------
+
+/// Lebar minimum (dp) untuk layout dua panel. Ini breakpoint, bukan ukuran widget.
+const double kWideBreakpoint = 600;
 
 class MenuScreen extends StatefulWidget {
   const MenuScreen({super.key, required this.items});
@@ -218,9 +221,16 @@ class MenuScreen extends StatefulWidget {
 }
 
 class _MenuScreenState extends State<MenuScreen> {
+  final TextEditingController _search = TextEditingController();
   String _query = '';
   String _category = kCategories.first;
   final Map<String, int> _qty = {};
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
 
   List<MenuItem> get _visible => widget.items.where((item) {
         final matchesQuery =
@@ -254,63 +264,152 @@ class _MenuScreenState extends State<MenuScreen> {
     setState(() => _qty.clear());
   }
 
+  void _resetFilters() {
+    _search.clear();
+    setState(() {
+      _query = '';
+      _category = kCategories.first;
+    });
+  }
+
+  /// Header + pencarian + kategori + promo. Dipakai di kedua layout.
+  Widget _controls(List<MenuItem> promos) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const StoreHeader(),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: Gap.md),
+          child: SearchBar(
+            key: const Key('search-field'),
+            controller: _search,
+            hintText: 'Cari menu…',
+            leading: const Icon(Icons.search),
+            onChanged: (value) => setState(() => _query = value),
+          ),
+        ),
+        const SizedBox(height: Gap.sm),
+        CategoryBar(
+          selected: _category,
+          onSelected: (category) => setState(() => _category = category),
+        ),
+        PromoStrip(items: promos),
+      ],
+    );
+  }
+
+  Widget _emptyState() {
+    return EmptyState(
+      key: const Key('empty-state'),
+      message: widget.items.isEmpty
+          ? 'Menu belum tersedia'
+          : 'Menu yang kamu cari tidak ditemukan',
+      onAction: _resetFilters,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final visible = _visible;
-    final promos = widget.items.where((item) => item.promo).toList();
-    final isTablet = MediaQuery.sizeOf(context).width > 600;
+    final promos = widget.items.where((item) => item.promo).take(2).toList();
 
     return Scaffold(
       appBar: AppBar(title: const Text('Menu')),
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      // Kiri/kanan: notch di landscape. Atas dan bawah sudah ditangani
+      // AppBar dan CartBar.
+      body: SafeArea(
+        top: false,
+        bottom: false,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final isWide = constraints.maxWidth >= kWideBreakpoint;
+
+            if (isWide) {
+              // Lebar: kontrol di atas, menu sebagai grid di bawahnya.
+              // Semuanya satu CustomScrollView, jadi satu scroll dan tetap lazy.
+              return CustomScrollView(
+                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                slivers: [
+                  SliverToBoxAdapter(child: _controls(promos)),
+                  if (visible.isEmpty)
+                    SliverToBoxAdapter(child: _emptyState())
+                  else
+                    SliverPadding(
+                      padding: const EdgeInsets.all(Gap.md),
+                      sliver: SliverGrid.builder(
+                        gridDelegate:
+                            const SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 220,
+                          mainAxisSpacing: Gap.md,
+                          crossAxisSpacing: Gap.md,
+                          childAspectRatio: 0.75,
+                        ),
+                        itemCount: visible.length,
+                        itemBuilder: (context, index) {
+                          final item = visible[index];
+                          return MenuCard(
+                            item: item,
+                            quantity: _qty[item.id] ?? 0,
+                            onAdd: () => _add(item),
+                          );
+                        },
+                      ),
+                    ),
+                ],
+              );
+            }
+
+            // Satu kolom: semuanya satu daftar yang bisa di-scroll (lazy).
+            return ListView.builder(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              itemCount: 1 + (visible.isEmpty ? 1 : visible.length),
+              itemBuilder: (context, index) {
+                if (index == 0) return _controls(promos);
+                if (visible.isEmpty) return _emptyState();
+                final item = visible[index - 1];
+                return MenuTile(
+                  item: item,
+                  quantity: _qty[item.id] ?? 0,
+                  onAdd: () => _add(item),
+                );
+              },
+            );
+          },
+        ),
+      ),
+      bottomNavigationBar: CartBar(count: _count, total: _total, onOrder: _order),
+    );
+  }
+}
+
+class EmptyState extends StatelessWidget {
+  const EmptyState({super.key, required this.message, required this.onAction});
+
+  final String message;
+  final VoidCallback onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+
+    return Padding(
+      padding: const EdgeInsets.all(Gap.lg),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          const StoreHeader(),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: Gap.md),
-            child: SearchBar(
-              key: const Key('search-field'),
-              hintText: 'Cari menu…',
-              leading: const Icon(Icons.search),
-              onChanged: (value) => setState(() => _query = value),
-            ),
-          ),
-          const SizedBox(height: Gap.sm),
-          CategoryBar(
-            selected: _category,
-            onSelected: (category) => setState(() => _category = category),
-          ),
-          PromoStrip(items: promos),
-          Expanded(
-            child: isTablet
-                ? GridView.count(
-                    crossAxisCount: 4,
-                    padding: const EdgeInsets.all(Gap.md),
-                    mainAxisSpacing: Gap.md,
-                    crossAxisSpacing: Gap.md,
-                    children: [
-                      for (final item in visible)
-                        MenuCard(
-                          item: item,
-                          quantity: _qty[item.id] ?? 0,
-                          onAdd: () => _add(item),
-                        ),
-                    ],
-                  )
-                : ListView(
-                    children: [
-                      for (final item in visible)
-                        MenuTile(
-                          item: item,
-                          quantity: _qty[item.id] ?? 0,
-                          onAdd: () => _add(item),
-                        ),
-                    ],
-                  ),
+          Icon(Icons.search_off, size: 64, color: cs.onSurfaceVariant),
+          const SizedBox(height: Gap.md),
+          Text(message, style: text.titleMedium, textAlign: TextAlign.center),
+          const SizedBox(height: Gap.md),
+          FilledButton.tonalIcon(
+            onPressed: onAction,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Muat ulang'),
           ),
         ],
       ),
-      bottomNavigationBar: CartBar(count: _count, total: _total, onOrder: _order),
     );
   }
 }
@@ -344,7 +443,7 @@ class StoreHeader extends StatelessWidget {
                 Text(
                   kStoreName,
                   style: text.titleMedium,
-                  maxLines: 1,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
                 Text(
@@ -353,13 +452,25 @@ class StoreHeader extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
+                const SizedBox(height: Gap.xs),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.star_rounded, size: 20, color: cs.tertiary),
+                    const SizedBox(width: Gap.xs),
+                    Flexible(
+                      child: Text(
+                        '4.8 · 1,2 rb ulasan',
+                        style: text.labelMedium,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
-          const SizedBox(width: Gap.md),
-          Icon(Icons.star_rounded, size: 20, color: cs.tertiary),
-          const SizedBox(width: Gap.xs),
-          Text('4.8 · 1,2 rb ulasan', style: text.labelMedium),
         ],
       ),
     );
@@ -374,9 +485,10 @@ class CategoryBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Jumlah chip lebih lebar dari layar kecil, jadi Row dibuat bisa digeser.
     return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: Gap.md),
       scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: Gap.md),
       child: Row(
         children: [
           for (final category in kCategories) ...[
@@ -398,12 +510,9 @@ class PromoStrip extends StatelessWidget {
 
   final List<MenuItem> items;
 
-  // Jarak antar kartu. Ubah ke Gap.lg (24) kalau ingin lebih renggang.
-  static const double _spacing = Gap.md;
-
   @override
   Widget build(BuildContext context) {
-    // Tidak ada promo -> tidak ada strip (sebelumnya promos[0] crash saat data kosong).
+    // Tidak ada promo -> tidak ada strip (sebelumnya promos[0] crash).
     if (items.isEmpty) return const SizedBox.shrink();
 
     return Padding(
@@ -413,7 +522,7 @@ class PromoStrip extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             for (var i = 0; i < items.length; i++) ...[
-              if (i > 0) const SizedBox(width: _spacing),
+              if (i > 0) const SizedBox(width: Gap.md),
               Expanded(child: PromoCard(item: items[i])),
             ],
           ],
@@ -429,44 +538,51 @@ class PromoCard extends StatelessWidget {
   final MenuItem item;
 
   @override
-  
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
 
-    return SizedBox(
-      width: 200,
-      height: 150,
-      child: Card(
-        margin: EdgeInsets.zero,
-        color: cs.tertiaryContainer,
-        child: Padding(
-          padding: const EdgeInsets.all(Gap.md),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'PROMO HARI INI',
-                style: text.labelSmall?.copyWith(
-                  color: cs.onTertiaryContainer,
-                  letterSpacing: 1.2,
+    return Card(
+      margin: EdgeInsets.zero,
+      color: cs.tertiaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(Gap.md),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'PROMO HARI INI',
+                  style: text.labelSmall?.copyWith(
+                    color: cs.onTertiaryContainer,
+                    letterSpacing: 1.2,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
-              const SizedBox(height: Gap.xs),
-              Text(
-                item.name,
-                style: text.titleMedium?.copyWith(color: cs.onTertiaryContainer),
-              ),
-              const Spacer(),
-              Text(
-                rupiah(item.price),
-                style: text.titleSmall?.copyWith(
-                  color: cs.onTertiaryContainer,
-                  fontWeight: FontWeight.bold,
+                const SizedBox(height: Gap.xs),
+                Text(
+                  item.name,
+                  style: text.titleMedium?.copyWith(color: cs.onTertiaryContainer),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
+              ],
+            ),
+            const SizedBox(height: Gap.sm),
+            Text(
+              rupiah(item.price),
+              style: text.titleSmall?.copyWith(
+                color: cs.onTertiaryContainer,
+                fontWeight: FontWeight.bold,
               ),
-            ],
-          ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
         ),
       ),
     );
@@ -502,16 +618,28 @@ class MenuTile extends StatelessWidget {
               child: Icon(iconFor(item.category), color: cs.onSecondaryContainer),
             ),
             const SizedBox(width: Gap.md),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(item.name, style: text.titleMedium),
-                if (item.promo)
-                  Text('Promo', style: text.labelSmall?.copyWith(color: cs.primary)),
-              ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.name,
+                    style: text.titleMedium,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (item.promo)
+                    Text('Promo', style: text.labelSmall?.copyWith(color: cs.primary)),
+                ],
+              ),
             ),
-            const Spacer(),
-            Text(rupiah(item.price), style: text.labelLarge),
+            const SizedBox(width: Gap.sm),
+            Text(
+              rupiah(item.price),
+              style: text.labelLarge,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
             IconButton(
               tooltip: 'Tambah',
               onPressed: onAdd,
@@ -551,29 +679,46 @@ class MenuCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              height: 110,
-              decoration: BoxDecoration(
-                color: cs.secondaryContainer,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              alignment: Alignment.center,
-              child: Icon(
-                iconFor(item.category),
-                size: 40,
-                color: cs.onSecondaryContainer,
+            // Area ikon mengambil sisa tinggi sel, bukan height tetap.
+            Expanded(
+              child: Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: cs.secondaryContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                alignment: Alignment.center,
+                child: Icon(
+                  iconFor(item.category),
+                  size: 40,
+                  color: cs.onSecondaryContainer,
+                ),
               ),
             ),
             const SizedBox(height: Gap.sm),
-            Text(item.name, style: text.titleSmall),
+            Text(
+              item.name,
+              style: text.titleSmall,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
             const SizedBox(height: Gap.xs),
-            Text(rupiah(item.price), style: text.bodyMedium),
+            Text(
+              rupiah(item.price),
+              style: text.bodyMedium,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
             const SizedBox(height: Gap.sm),
             SizedBox(
               width: double.infinity,
               child: FilledButton.tonal(
                 onPressed: onAdd,
-                child: Text(quantity > 0 ? 'Tambah ($quantity)' : 'Tambah'),
+                child: Text(
+                  quantity > 0 ? 'Tambah ($quantity)' : 'Tambah',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
             ),
           ],
@@ -600,28 +745,34 @@ class CartBar extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
 
+    // Warna menutupi area gesture bar, tapi isi (tombol) berada di atasnya.
     return Container(
-      height: 72,
-      padding: const EdgeInsets.symmetric(horizontal: Gap.md),
       color: cs.surfaceContainerHigh,
-      child: Row(
-        children: [
-          Icon(Icons.shopping_bag_outlined, color: cs.onSurfaceVariant),
-          const SizedBox(width: Gap.sm),
-          Text(
-            'Pesanan: $count item · Total ${rupiah(total)}',
-            style: text.titleSmall,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: Gap.md, vertical: Gap.sm),
+          child: Row(
+            children: [
+              Icon(Icons.shopping_bag_outlined, color: cs.onSurfaceVariant),
+              const SizedBox(width: Gap.sm),
+              Expanded(
+                child: Text(
+                  'Pesanan: $count item · Total ${rupiah(total)}',
+                  style: text.titleSmall,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: Gap.md),
+              FilledButton(
+                key: const Key('order-button'),
+                onPressed: count == 0 ? null : onOrder,
+                child: const Text('Pesan'),
+              ),
+            ],
           ),
-          const SizedBox(width: Gap.md),
-          SizedBox(
-            width: 160,
-            child: FilledButton(
-              key: const Key('order-button'),
-              onPressed: count == 0 ? null : onOrder,
-              child: const Text('Pesan'),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
