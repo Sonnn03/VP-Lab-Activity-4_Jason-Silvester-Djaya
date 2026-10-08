@@ -280,7 +280,7 @@ class _MenuScreenState extends State<MenuScreen> {
             selected: _category,
             onSelected: (category) => setState(() => _category = category),
           ),
-          PromoStrip(first: promos[0], second: promos[1]),
+          PromoStrip(items: promos),
           Expanded(
             child: isTablet
                 ? GridView.count(
@@ -337,15 +337,24 @@ class StoreHeader extends StatelessWidget {
             child: Icon(Icons.storefront, color: cs.onPrimaryContainer),
           ),
           const SizedBox(width: Gap.md),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(kStoreName, style: text.titleMedium),
-              Text(
-                kStoreHours,
-                style: text.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-              ),
-            ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  kStoreName,
+                  style: text.titleMedium,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  kStoreHours,
+                  style: text.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
           ),
           const SizedBox(width: Gap.md),
           Icon(Icons.star_rounded, size: 20, color: cs.tertiary),
@@ -365,8 +374,9 @@ class CategoryBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: Gap.md),
+      scrollDirection: Axis.horizontal,
       child: Row(
         children: [
           for (final category in kCategories) ...[
@@ -384,21 +394,30 @@ class CategoryBar extends StatelessWidget {
 }
 
 class PromoStrip extends StatelessWidget {
-  const PromoStrip({super.key, required this.first, required this.second});
+  const PromoStrip({super.key, required this.items});
 
-  final MenuItem first;
-  final MenuItem second;
+  final List<MenuItem> items;
+
+  // Jarak antar kartu. Ubah ke Gap.lg (24) kalau ingin lebih renggang.
+  static const double _spacing = Gap.md;
 
   @override
   Widget build(BuildContext context) {
+    // Tidak ada promo -> tidak ada strip (sebelumnya promos[0] crash saat data kosong).
+    if (items.isEmpty) return const SizedBox.shrink();
+
     return Padding(
       padding: const EdgeInsets.all(Gap.md),
-      child: Row(
-        children: [
-          PromoCard(item: first),
-          const SizedBox(width: Gap.md),
-          PromoCard(item: second),
-        ],
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (var i = 0; i < items.length; i++) ...[
+              if (i > 0) const SizedBox(width: _spacing),
+              Expanded(child: PromoCard(item: items[i])),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -410,6 +429,7 @@ class PromoCard extends StatelessWidget {
   final MenuItem item;
 
   @override
+  
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
