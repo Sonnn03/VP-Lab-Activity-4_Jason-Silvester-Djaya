@@ -11,9 +11,9 @@
 // set), pumps the app, and fails if Flutter reports ANY layout error —
 // "A RenderFlex overflowed…", "unbounded height", a RangeError, anything.
 //
-// ONE THING TO KNOW: fquare, so text is much wider here than on a phone. If a
-// test fails but thelutter test draws text with a test font in which every
-// letter is a full s harness looks fine, that text has no overflow strategy
+// ONE THING TO KNOW: flutter test draws text with a test font in which every
+// letter is a full square, so text is much wider here than on a phone. If a
+// test fails but the harness looks fine, that text has no overflow strategy
 // (maxLines + ellipsis, or room to wrap). Fix the strategy, not the font.
 //
 // If your project is not called lab04, change "package:lab04/" below.
